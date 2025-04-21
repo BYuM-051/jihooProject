@@ -77,7 +77,7 @@ const uint8_t MotorInCPin = 12;
 const uint8_t MotorInDPin = 13;
 static bool motorActivateFlag = false;
 
-const int countsPerRevolution = 0; // TODO : modify this with motor spec
+const int countsPerRevolution = 1600; // TODO : modify this with motor spec
 const int motorDelay = 500; // TODO : same
 static int motorCount = 0;
 
@@ -202,6 +202,18 @@ DS1302 *rtc;
 //static unsigned int dispenseWeight = 0;
 static unsigned int manualDispenseWeight = 0;
 const unsigned int DispenseWeightStep = 10; // grams per one action (+/-)
+
+// Function Declarations
+void rotateOneRevolution(bool isAnticlockwise);
+void setMotorOff();
+void clockwise();
+void anticlockwise();
+void setOutput(int out);
+int getWeight();
+unsigned long ultraSensorCheck();
+void fillFood(int weight, int dishes);
+void ISR_ButtonClicked();
+void onButtonAction(int page, int button, int action);
 
 void setup() 
 {  
