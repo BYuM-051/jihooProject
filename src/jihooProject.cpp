@@ -206,6 +206,9 @@ const unsigned int DispenseWeightStep = 10; // grams per one action (+/-)
 #include <SoftwareSerial.h>
 #include "DFRobotDFPlayerMini.h"
 
+#define SOUND_POWER_ON 1
+#define SOuND_FEED_COMPLETE 2
+
 const uint8_t SoftwareSerialRX = A1;
 const uint8_t SoftwareSerialTX = A2;
 
@@ -213,6 +216,8 @@ SoftwareSerial dfPlayerSerial(A1, A2);
 DFRobotDFPlayerMini dfPlayer;
 
 const uint8_t DFPlayerConnectMaxAttempts = 10;
+const uint8_t DFPlayerSerialTimeout = 500;
+const uint8_t DFPlayerVolume = 15; // 0~30 sound volume
 
 // Function Declarations
 void rotateOneRevolution(bool isAnticlockwise);
@@ -265,7 +270,11 @@ void setup()
 
     dfPlayerConnectAttempt++;
   }
-  
+  dfPlayer.setTimeOut(DFPlayerSerialTimeout);
+  dfPlayer.volume(DFPlayerVolume);
+  // Play PowerOn Sound
+  dfPlayer.playMp3Folder(SOUND_POWER_ON);
+
   // Initialize RTC
   rtcManager.begin(RTC_RESET_PIN, RTC_DATA_PIN, RTC_CLOCK_PIN);
 
@@ -1731,8 +1740,5 @@ unsigned long ultraSensorCheck()
 
 void playCompleteSound()
 {
-  //TODO : play complete sound 
-  /*
-  /
-  */
+  dfPlayer.playMp3Folder(SOuND_FEED_COMPLETE);
 }
