@@ -340,7 +340,6 @@ void loop()
 
   if(buttonCheckFlag)
   {
-    // TODO : button handle
     int buttonValue = analogRead(BUTTON_PIN);
     int action = -1;
     if(BUTTON_SET + BUTTON_MARGIN >= buttonValue && buttonValue >= BUTTON_SET - BUTTON_MARGIN )
@@ -358,7 +357,8 @@ void loop()
     }
     buttonCheckFlag = false;
 
-    onButtonAction(nowPage, nowButton, action);
+    if(action != -1)
+      {onButtonAction(nowPage, nowButton, action);}
   }
 
 /*
@@ -729,7 +729,7 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               lcd.blink();
               nowButton = MainPage_BTN_Log;
               return;
-            case SET : // TODO : modify Value
+            case SET : // done!
               lcd.clear();
               lcd.print("DISPENSE");
               lcd.setCursor(0, 1);
@@ -853,10 +853,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
           manualDispenseWeight += DispenseWeightStep;
           buttonBlinkFlag = DISPENSE_WEIGHT;
           return;
-        case SET : // TODO :
-          // TODO : dispense action
-
-          //return;
+        case SET : // done!
+          fillFood(manualDispenseWeight);
+          return;
         case BACK : // done!
           lcd.clear();
           lcd.print("SET > ENTER");
