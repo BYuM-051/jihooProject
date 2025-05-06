@@ -75,7 +75,6 @@ const uint8_t MotorInAPin = 10;
 const uint8_t MotorInBPin = 11;
 const uint8_t MotorInCPin = 12;
 const uint8_t MotorInDPin = 13;
-static bool motorActivateFlag = false;
 
 const int countsPerRevolution = 1600; // TODO : modify this with motor spec
 const int motorDelay = 500; // TODO : same
@@ -189,9 +188,9 @@ static unsigned long buttonBlinkOldTime = 0;
 
 // RTC constants and variables below here
 
-#include "DS1302.h"
+#include "rtcManager.h"
 
-DS1302 *rtc;
+RTCManager rtcManager;
 //static Time *currentTime;
 
 #define RTC_RESET_PIN 5
@@ -203,23 +202,37 @@ DS1302 *rtc;
 static unsigned int manualDispenseWeight = 0;
 const unsigned int DispenseWeightStep = 10; // grams per one action (+/-)
 
+// DFPlayer constants and variables below here
+#include <SoftwareSerial.h>
+#include "DFRobotDFPlayerMini.h"
+
+const uint8_t SoftwareSerialRX = A1;
+const uint8_t SoftwareSerialTX = A2;
+
+SoftwareSerial dfPlayerSerial(A1, A2);
+DFRobotDFPlayerMini dfPlayer;
+
+const uint8_t DFPlayerConnectMaxAttempts = 10;
+
 // Function Declarations
 void rotateOneRevolution(bool isAnticlockwise);
+void playCompleteSound();
 void setMotorOff();
 void clockwise();
 void anticlockwise();
 void setOutput(int out);
 int getWeight();
 unsigned long ultraSensorCheck();
-void fillFood(int weight, int dishes);
+void fillFood(int weight);
 void ISR_ButtonClicked();
 void onButtonAction(int page, int button, int action);
 
 void setup() 
 {  
-  lcd.init(); // Initialize LCD
+  // LCD Initialize and Loading Screen
+  lcd.init();
   lcd.backlight();
-  lcd.setCursor(0, 0);// LCD InitialScreen
+  lcd.setCursor(0, 0);
   lcd.print("Init...");
 
   //
@@ -241,11 +254,20 @@ void setup()
   pinMode(UltraSonicTrigPin, OUTPUT);
   pinMode(UltraSonicEchoPin, INPUT);
 
-  // TODO : Initialize DFPlayer Mini
+  // Initialize DFPlayer Mini
+  dfPlayerSerial.begin(9600);
+  int dfPlayerConnectAttempt = 0;
+  while(!dfPlayer.begin(dfPlayerSerial, false))
+  {
+    delay(10);
+    if(dfPlayerConnectAttempt > DFPlayerConnectMaxAttempts)
+      {break;}
+
+    dfPlayerConnectAttempt++;
+  }
   
   // Initialize RTC
-  rtc = new DS1302(RTC_RESET_PIN, RTC_DATA_PIN, RTC_CLOCK_PIN);
-  Time* currentTime = &(rtc->getTime());
+  rtcManager.begin(RTC_RESET_PIN, RTC_DATA_PIN, RTC_CLOCK_PIN);
 
   // Get Data From EEPROM
   breakfastAmount = EEPROM.read(BREAKFAST_AMOUNT_IDX); 
@@ -274,16 +296,39 @@ void setup()
   Serial.begin(9600);
 }
 
-
-
 void loop() 
 {
   // put your main code here, to run repeatedly:
-  if(!loopFlag) {return;}
+  if (!loopFlag) return;
 
-  Time currentTime = (rtc->getTime());
+  Time currentTime = rtcManager.now();
+  unsigned long nowTime = millis();
 
-  volatile unsigned long nowTime = millis();
+  // Reset feed flags at midnight (00:00 ~ 00:00:59)
+  if (currentTime.hour == 0 && currentTime.min == 0) 
+  {
+    breakfastFeedFlag = false;
+    lunchFeedFlag = false;
+    dinnerFeedFlag = false;
+  }
+
+  // Fill Food with Schedule
+  if (!breakfastFeedFlag && currentTime.hour == breakfastHour && currentTime.min == breakfastMinute) 
+  {
+    fillFood(breakfastAmount);
+    breakfastFeedFlag = true;
+  }
+  if (!lunchFeedFlag && currentTime.hour == lunchHour && currentTime.min == lunchMinute) 
+  {
+    fillFood(lunchAmount);
+    lunchFeedFlag = true;
+  }
+  if (!dinnerFeedFlag && currentTime.hour == dinnerHour && currentTime.min == dinnerMinute) 
+  {
+    fillFood(dinnerAmount);
+    dinnerFeedFlag = true;
+  }
+
   if(buttonCheckFlag)
   {
     // TODO : button handle
@@ -537,8 +582,6 @@ enum ButtonBlinkFlags
 
   if(nowPage != Page_NOUSE && nowTime > lastUsedTime + NoUseScreenChangePeriod)
   {
-    Serial.println(rtc->getTimeStr());
-    Serial.println(rtc->getDateStr());
     nowPage = Page_NOUSE;
     lcd.clear();
     lcd.noBlink();
@@ -1542,6 +1585,7 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
   }
 }
 
+/*
 void fillFood(int weight, int dishes)
 {
   // Rotate stepping motors and check weight sensor
@@ -1556,6 +1600,39 @@ void fillFood(int weight, int dishes)
 
     rotateOneRevolution(true);
   }
+}
+*/
+
+//TODO : adjust parameter below here
+//TODO : seperate measuring weight code as getWeight
+const float FillTolerance = 0.0;
+const int FillMaxAttempt = 500;
+
+void fillFood(int targetWeight) 
+{
+  noInterrupts();
+  int attempts = 0;
+
+  weightSensor.tare(); 
+  delay(200); 
+
+  while (attempts < FillMaxAttempt) 
+  {
+    float weight = weightSensor.get_units(5); 
+    Serial.print("Current weight: ");
+    Serial.println(weight);
+
+    if (weight >= targetWeight - FillTolerance) 
+      {break;}
+
+    rotateOneRevolution(true);
+    attempts++;
+  }
+
+  setMotorOff();
+
+  playCompleteSound();
+  interrupts();
 }
 
 //motor control codes below here
@@ -1605,6 +1682,14 @@ void setOutput(int out)
   digitalWrite(MotorInDPin, bitRead(MotorOutput[out], 3));
 }
 
+void setMotorOff()
+{
+  digitalWrite(MotorInAPin, 0);
+  digitalWrite(MotorInBPin, 0);
+  digitalWrite(MotorInCPin, 0);
+  digitalWrite(MotorInDPin, 0);
+}
+
 int getWeight()
 {
   noInterrupts();
@@ -1642,4 +1727,12 @@ unsigned long ultraSensorCheck()
   #endif
 
   return distance;
+}
+
+void playCompleteSound()
+{
+  //TODO : play complete sound 
+  /*
+  /
+  */
 }
