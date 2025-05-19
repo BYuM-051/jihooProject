@@ -89,7 +89,7 @@ const uint8_t UltraSonicEchoPin = 5;
 #include "HX711.h"
 const uint8_t WeightDataPin = 8;
 const uint8_t WeightClockPin = 7;
-const float WeightSensorCalibrationData = 0.0f; // TODO : calibrate sensor
+const float WeightSensorCalibrationData = 2336.76f; // TODO : calibrate sensor
 
 HX711 weightSensor;
 
@@ -495,96 +495,110 @@ enum ButtonBlinkFlags
             lcd.print(" G");
           }
           return;
-        case SETTING_TIME_HH_BREAKFAST :
-          lcd.setCursor(3, 1);
-          if(blinkButtonState)
+          case SETTING_TIME_HH_BREAKFAST:
           {
-            blinkButtonState = LOW;
-            lcd.print("  ");
+              lcd.setCursor(0, 1);
+              if (blinkButtonState)
+              {
+                  blinkButtonState = LOW;
+                  lcd.print("  :");
+              }
+              else
+              {
+                  blinkButtonState = HIGH;
+                  if (breakfastHour < 10) { lcd.print('0'); }
+                  lcd.print(breakfastHour);
+                  lcd.print(":");
+              }
+              return;
           }
-          else
+          
+          case SETTING_TIME_MM_BREAKFAST:
           {
-            blinkButtonState = HIGH;
-            if(!(breakfastHour / 10)){lcd.print('0');}
-            lcd.print(breakfastHour);
-            lcd.print(" G");
+              lcd.setCursor(3, 1);
+              if (blinkButtonState)
+              {
+                  blinkButtonState = LOW;
+                  lcd.print("  ");
+              }
+              else
+              {
+                  blinkButtonState = HIGH;
+                  if (breakfastMinute < 10) { lcd.print('0'); }
+                  lcd.print(breakfastMinute);
+              }
+              return;
           }
-          return;
-        case SETTING_TIME_MM_BREAKFAST : 
-          lcd.setCursor(3, 1); // TODO modify cursor
-          if(blinkButtonState)
+          
+          case SETTING_TIME_HH_LUNCH:
           {
-            blinkButtonState = LOW;
-            lcd.print("  ");
+              lcd.setCursor(0, 1);
+              if (blinkButtonState)
+              {
+                  blinkButtonState = LOW;
+                  lcd.print("  :");
+              }
+              else
+              {
+                  blinkButtonState = HIGH;
+                  if (lunchHour < 10) { lcd.print('0'); }
+                  lcd.print(lunchHour);
+                  lcd.print(":");
+              }
+              return;
           }
-          else
+          
+          case SETTING_TIME_MM_LUNCH:
           {
-            blinkButtonState = HIGH;
-            if(!(breakfastMinute / 10)){lcd.print('0');}
-            lcd.print(breakfastMinute);
-            lcd.print(" G");
+              lcd.setCursor(3, 1);
+              if (blinkButtonState)
+              {
+                  blinkButtonState = LOW;
+                  lcd.print("  ");
+              }
+              else
+              {
+                  blinkButtonState = HIGH;
+                  if (lunchMinute < 10) { lcd.print('0'); }
+                  lcd.print(lunchMinute);
+              }
+              return;
           }
-          return;
-        case SETTING_TIME_HH_LUNCH :
-          lcd.setCursor(3, 1);
-          if(blinkButtonState)
+          
+          case SETTING_TIME_HH_DINNER:
           {
-            blinkButtonState = LOW;
-            lcd.print("  ");
+              lcd.setCursor(0, 1);
+              if (blinkButtonState)
+              {
+                  blinkButtonState = LOW;
+                  lcd.print("  :");
+              }
+              else
+              {
+                  blinkButtonState = HIGH;
+                  if (dinnerHour < 10) { lcd.print('0'); }
+                  lcd.print(dinnerHour);
+                  lcd.print(":");
+              }
+              return;
           }
-          else
+          
+          case SETTING_TIME_MM_DINNER:
           {
-            blinkButtonState = HIGH;
-            if(!(lunchHour / 10)){lcd.print('0');}
-            lcd.print(lunchHour);
-            lcd.print(" G");
+              lcd.setCursor(3, 1);
+              if (blinkButtonState)
+              {
+                  blinkButtonState = LOW;
+                  lcd.print("  ");
+              }
+              else
+              {
+                  blinkButtonState = HIGH;
+                  if (dinnerMinute < 10) { lcd.print('0'); }
+                  lcd.print(dinnerMinute);
+              }
+              return;
           }
-          return;
-        case SETTING_TIME_MM_LUNCH : 
-          lcd.setCursor(3, 1); // TODO modify cursor
-          if(blinkButtonState)
-          {
-            blinkButtonState = LOW;
-            lcd.print("  ");
-          }
-          else
-          {
-            blinkButtonState = HIGH;
-            if(!(lunchMinute / 10)){lcd.print('0');}
-            lcd.print(lunchMinute);
-            lcd.print(" G");
-          }
-          return;
-        case SETTING_TIME_HH_DINNER : 
-          lcd.setCursor(0, 1); // TODO modify cursor
-          if(blinkButtonState)
-          {
-            blinkButtonState = LOW;
-            lcd.print("  ");
-          }
-          else
-          {
-            blinkButtonState = HIGH;
-            if(!(dinnerHour / 10)){lcd.print('0');}
-            lcd.print(dinnerHour);
-            lcd.print(" G");
-          }
-          return;
-        case SETTING_TIME_MM_DINNER :
-          lcd.setCursor(3, 1);
-          if(blinkButtonState)
-          {
-            blinkButtonState = LOW;
-            lcd.print("  ");
-          }
-          else
-          {
-            blinkButtonState = HIGH;
-            if(!(dinnerMinute / 10)){lcd.print('0');}
-            lcd.print(dinnerMinute);
-            lcd.print(" G");
-          }
-            return;
       }
     }
   }
@@ -854,7 +868,20 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
           buttonBlinkFlag = DISPENSE_WEIGHT;
           return;
         case SET : // done!
+          lcd.clear();
+          lcd.print("Dispensing...");
+          lcd.setCursor(0, 1);
+          lcd.print(manualDispenseWeight);
+          lcd.print(" G");
           fillFood(manualDispenseWeight);
+          lcd.clear();
+          lcd.print("SET > ENTER");
+          lcd.setCursor(0, 1);
+          lcd.print(" CONFIG FEED LOG");
+          lcd.setCursor(0, 1);
+          lcd.blink();
+          nowPage = Page_MAIN;
+          nowButton = MainPage_BTN_Setting;
           return;
         case BACK : // done!
           lcd.clear();
@@ -1716,9 +1743,9 @@ int getWeight()
   return round(w1);
 }
 
+//TODO : call this method
 unsigned long ultraSensorCheck()
 {
-  noInterrupts();
   unsigned long duration, distance;
   digitalWrite(UltraSonicTrigPin, HIGH);
   delayMicroseconds(10);
@@ -1726,7 +1753,6 @@ unsigned long ultraSensorCheck()
 
   duration = pulseIn(UltraSonicEchoPin, HIGH);
   distance = (((float)(340 * duration) / 1000) / 2);
-  interrupts();
 
   //debug code
   #ifdef _DEBUG_
@@ -1736,6 +1762,7 @@ unsigned long ultraSensorCheck()
 
   return distance;
 }
+
 
 void playCompleteSound()
 {
