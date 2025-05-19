@@ -14,7 +14,9 @@ Time RTCManager::now() {
 }
 
 void RTCManager::setTime(uint8_t hour, uint8_t min, uint8_t sec) {
+    this->rtc->writeProtect(false);
     this->rtc->setTime(hour, min, sec);
+    this->rtc->writeProtect(true);
 }
 
 void RTCManager::setDate(uint8_t date, uint8_t month, uint16_t year) {

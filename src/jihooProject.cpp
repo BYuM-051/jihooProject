@@ -23,10 +23,10 @@ A5 I2C SCL
 7 RTCDataPin
 8 WeightClockPin
 9 WeightDataPin
-10 motorAPin
-11 motorBPin
-12 motorCPin
-13 motorDPin
+10 MotorDirectionPin
+11 MotorStepPin
+12 MotorENABLEPin
+13 
 */
 
 // EEPROM INDEX constants and variables below here
@@ -50,6 +50,10 @@ static uint8_t lunchMinute;
 static uint8_t dinnerHour;
 static uint8_t dinnerMinute;
 
+static uint8_t settingHour;
+static uint8_t settingMin;
+static uint8_t settingSec;
+
 static bool breakfastFeedFlag = false;
 static bool lunchFeedFlag = false;
 static bool dinnerFeedFlag = false;
@@ -70,20 +74,21 @@ volatile unsigned long lastButtonClickedTime = 0;
 const unsigned long DebouncingPeriod = 200;
 
 // motor constants and variables below here
-const int MotorOutput[8] = {B01000, B01100, B00100, B00110, B00010, B00011, B00001, B01001}; // 8 steps 1 cycle
-const uint8_t MotorInAPin = 10;
-const uint8_t MotorInBPin = 11;
-const uint8_t MotorInCPin = 12;
-const uint8_t MotorInDPin = 13;
+const uint8_t StepPin = 10;
+const uint8_t DirPin = 11;
+const uint8_t EnPin = 12;
 
-const int countsPerRevolution = 1600; // TODO : modify this with motor spec
-const int motorDelay = 500; // TODO : same
+const int CountsPerRevolution = 200; // TODO : modify this with motor spec
+const int MotorDelay = 1200; // TODO : same
 static int motorCount = 0;
 
 // ultrasonic sensor constants and variables below here
 #define ULTRASONIC_PERIOD 30000
 const uint8_t UltraSonicTrigPin = 4;
 const uint8_t UltraSonicEchoPin = 5;
+
+const long UltrasonicNoFoodDistance = 170;
+const long UltrasonicWarningDistance = 100;
 
 // weight sensor constants and variables below here
 #include "HX711.h"
@@ -207,7 +212,8 @@ const unsigned int DispenseWeightStep = 10; // grams per one action (+/-)
 #include "DFRobotDFPlayerMini.h"
 
 #define SOUND_POWER_ON 1
-#define SOuND_FEED_COMPLETE 2
+#define SOUND_FEED_COMPLETE 2
+#define SOUND_WARNING 3
 
 const uint8_t SoftwareSerialRX = A1;
 const uint8_t SoftwareSerialTX = A2;
@@ -216,21 +222,18 @@ SoftwareSerial dfPlayerSerial(A1, A2);
 DFRobotDFPlayerMini dfPlayer;
 
 const uint8_t DFPlayerConnectMaxAttempts = 10;
-const uint8_t DFPlayerSerialTimeout = 500;
+const uint16_t DFPlayerSerialTimeout = 500;
 const uint8_t DFPlayerVolume = 15; // 0~30 sound volume
 
 // Function Declarations
-void rotateOneRevolution(bool isAnticlockwise);
-void playCompleteSound();
-void setMotorOff();
-void clockwise();
-void anticlockwise();
-void setOutput(int out);
+void rotateOneRevolution(bool isClockWise);
 int getWeight();
 unsigned long ultraSensorCheck();
 void fillFood(int weight);
 void ISR_ButtonClicked();
 void onButtonAction(int page, int button, int action);
+void setMotorOff();
+void rotateStep(int steps, bool isClockWise);
 
 void setup() 
 {  
@@ -245,10 +248,9 @@ void setup()
   pinMode(BUTTON_PIN, INPUT); // set button pin as input pin (not needed)
   
   // Initialize Stepping Motor
-  pinMode(MotorInAPin, OUTPUT);
-  pinMode(MotorInBPin, OUTPUT);
-  pinMode(MotorInCPin, OUTPUT);
-  pinMode(MotorInDPin, OUTPUT);
+  pinMode(StepPin, OUTPUT);
+  pinMode(DirPin, OUTPUT);
+  pinMode(EnPin, OUTPUT);
   
   // Initialize weight sensor
   weightSensor.begin(WeightDataPin, WeightClockPin); 
@@ -352,7 +354,7 @@ void loop()
       { action = PREV; }
     else
     {
-      Serial.print("ERROR-- Unknown Button Input Detected : "); 
+      Serial.print(F("ERROR-- Unknown Button Input Detected : ")); 
       Serial.println(buttonValue);
     }
     buttonCheckFlag = false;
@@ -396,55 +398,46 @@ enum ButtonBlinkFlags
             lcd.print(" G");
           }          
           return;
-        case CURRENT_TIME_HH : // deprecated 0405
+        case CURRENT_TIME_HH :
           lcd.setCursor(0, 1);
           if(blinkButtonState)
           {
             blinkButtonState = LOW;
-            lcd.print("    ");
+            lcd.print("  ");
           }
           else
           {
             blinkButtonState = HIGH;
-            lcd.print('0');
-            if(!(manualDispenseWeight/100)){lcd.print('0');}
-            if(!(manualDispenseWeight/10)){lcd.print('0');}
-            lcd.print(manualDispenseWeight);
-            lcd.print(" G");
+            if(!(settingHour/10)){lcd.print('0');}
+            lcd.print(settingHour);
           }          
           return;
-        case CURRENT_TIME_MM : // deprecated 0405
-          lcd.setCursor(0, 1);
+        case CURRENT_TIME_MM :
+          lcd.setCursor(0, 4);
           if(blinkButtonState)
           {
             blinkButtonState = LOW;
-            lcd.print("    ");
+            lcd.print("  ");
           }
           else
           {
             blinkButtonState = HIGH;
-            lcd.print('0');
-            if(!(manualDispenseWeight/100)){lcd.print('0');}
-            if(!(manualDispenseWeight/10)){lcd.print('0');}
-            lcd.print(manualDispenseWeight);
-            lcd.print(" G");
+            if(!(settingMin/10)){lcd.print('0');}
+            lcd.print(settingMin);
           }          
           return;
-        case CURRENT_TIME_SS : // deprecated 0405
-          lcd.setCursor(0, 1);
+        case CURRENT_TIME_SS :
+          lcd.setCursor(0, 7);
           if(blinkButtonState)
           {
             blinkButtonState = LOW;
-            lcd.print("    ");
+            lcd.print("  ");
           }
           else
           {
             blinkButtonState = HIGH;
-            lcd.print('0');
-            if(!(manualDispenseWeight/100)){lcd.print('0');}
-            if(!(manualDispenseWeight/10)){lcd.print('0');}
-            lcd.print(manualDispenseWeight);
-            lcd.print(" G");
+            if(!(settingSec/10)){lcd.print('0');}
+            lcd.print(settingSec);
           }          
           return;
         case SETTING_WEIGHT_BREAKFAST :
@@ -693,9 +686,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
   {
     case Page_NOUSE :
       lcd.clear();
-      lcd.print("SET > ENTER");
+      lcd.print(F("SET > ENTER"));
       lcd.setCursor(0, 1);
-      lcd.print(" CONFIG FEED LOG");
+      lcd.print(F(" CONFIG FEED LOG"));
       lcd.setCursor(0, 1);
       lcd.blink();
       nowPage = Page_MAIN;
@@ -718,9 +711,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("SETTINGS");
+              lcd.print(F("SETTINGS"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME SCHEDULE");
+              lcd.print(F(" TIME SCHEDULE"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_SETTING;
@@ -745,7 +738,7 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("DISPENSE");
+              lcd.print(F("DISPENSE"));
               lcd.setCursor(0, 1);
               lcd.print('0');
               if(!(manualDispenseWeight/100)){lcd.print('0');}
@@ -797,14 +790,21 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               nowButton = PAGE1_BTN_SCHEDULE;
               return;
             case SET : // TODO : integrate RTC and go to time setting page
+              Time currentTime = rtcManager.now();
+              settingHour = currentTime.hour;
+              settingMin = currentTime.min;
+              settingSec = currentTime.sec;
               lcd.clear();
-              lcd.print("TIME");
+              lcd.print(F("TIME"));
               lcd.setCursor(0, 1);
-              //lcd.print(); // HH
+              if(!(settingHour/10)){lcd.print('0');}
+              lcd.print(settingHour);
               lcd.print(" ");
-              //lcd.print(); // MM
+              if(!(settingMin/10)){lcd.print('0');}
+              lcd.print(settingMin);
               lcd.print(" ");
-              //lcd.print(); // DD
+              if(!(settingSec/10)){lcd.print('0');}
+              lcd.print(settingSec);
               lcd.setCursor(0, 1);
               nowPage = Page_TIME;
               nowButton = PAGE3_BTN_HH;
@@ -812,9 +812,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case BACK : // done!
               lcd.clear();
-              lcd.print("SET > ENTER");
+              lcd.print(F("SET > ENTER"));
               lcd.setCursor(0, 1);
-              lcd.print(" CONFIG FEED LOG");
+              lcd.print(F(" CONFIG FEED LOG"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_MAIN;
@@ -836,9 +836,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -846,9 +846,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case BACK : // done!
               lcd.clear();
-              lcd.print("SET > ENTER");
+              lcd.print(F("SET > ENTER"));
               lcd.setCursor(0, 1);
-              lcd.print(" CONFIG FEED LOG");
+              lcd.print(F(" CONFIG FEED LOG"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_MAIN;
@@ -869,15 +869,15 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
           return;
         case SET : // done!
           lcd.clear();
-          lcd.print("Dispensing...");
+          lcd.print(F("Dispensing..."));
           lcd.setCursor(0, 1);
           lcd.print(manualDispenseWeight);
-          lcd.print(" G");
+          lcd.print(F(" G"));
           fillFood(manualDispenseWeight);
           lcd.clear();
-          lcd.print("SET > ENTER");
+          lcd.print(F("SET > ENTER"));
           lcd.setCursor(0, 1);
-          lcd.print(" CONFIG FEED LOG");
+          lcd.print(F(" CONFIG FEED LOG"));
           lcd.setCursor(0, 1);
           lcd.blink();
           nowPage = Page_MAIN;
@@ -885,9 +885,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
           return;
         case BACK : // done!
           lcd.clear();
-          lcd.print("SET > ENTER");
+          lcd.print(F("SET > ENTER"));
           lcd.setCursor(0, 1);
-          lcd.print(" CONFIG FEED LOG");
+          lcd.print(F(" CONFIG FEED LOG"));
           lcd.setCursor(0, 1);
           lcd.blink();
           nowPage = Page_MAIN;
@@ -901,8 +901,10 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
           switch(action)
           {
             case PREV :
+              settingHour = settingHour == 0 ? 23 : settingHour - 1;
               return;
             case NEXT :
+              settingHour = settingHour == 23 ? 0 : settingHour + 1;
               return;
             case SET : // done!
               buttonBlinkFlag = CURRENT_TIME_MM;
@@ -911,9 +913,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               //buttonBlinkFlag = NO_BLINK;
               lcd.clear();
-              lcd.print("SETTINGS");
+              lcd.print(F("SETTINGS"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME SCHEDULE");
+              lcd.print(F(" TIME SCHEDULE"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_SETTING;
@@ -924,8 +926,10 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
           switch(action)
           {
             case PREV :
+              settingMin = settingMin == 0 ? 59 : settingMin - 1;
               return;
             case NEXT :
+              settingMin = settingMin == 59 ? 0 : settingMin + 1;
               return;
             case SET : // done!
               buttonBlinkFlag = CURRENT_TIME_SS;
@@ -940,14 +944,17 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
           switch(action)
           {
             case PREV :
+              settingSec = settingSec == 0 ? 59 : settingSec - 1;
               return;
             case NEXT :
+              settingSec = settingSec == 59 ? 0 : settingSec + 1;
               return;
             case SET : // save to RTC
+              rtcManager.setTime(settingHour, settingMin, settingSec);
               lcd.clear();
-              lcd.print("SETTINGS");
+              lcd.print(F("SETTINGS"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME SCHEDULE");
+              lcd.print(F(" TIME SCHEDULE"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_SETTING;
@@ -977,9 +984,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("BREAKFAST");
+              lcd.print(F("BREAKFAST"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME AMOUNT");
+              lcd.print(F(" TIME AMOUNT"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleBreakfast;
@@ -987,9 +994,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case BACK : // done!
               lcd.clear();
-              lcd.print("SETTINGS");
+              lcd.print(F("SETTINGS"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME SCHEDULE");
+              lcd.print(F(" TIME SCHEDULE"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_SETTING;
@@ -1012,9 +1019,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("LUNCH");
+              lcd.print(F("LUNCH"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME AMOUNT");
+              lcd.print(F(" TIME AMOUNT"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleLunch;
@@ -1022,9 +1029,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case BACK : // done!
               lcd.clear();
-              lcd.print("SETTINGS");
+              lcd.print(F("SETTINGS"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME SCHEDULE");
+              lcd.print(F(" TIME SCHEDULE"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_SETTING;
@@ -1045,9 +1052,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("DINNER");
+              lcd.print(F("DINNER"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME AMOUNT");
+              lcd.print(F(" TIME AMOUNT"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleDinner;
@@ -1055,9 +1062,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case BACK : // done!
               lcd.clear();
-              lcd.print("SETTINGS");
+              lcd.print(F("SETTINGS"));
               lcd.setCursor(0, 1);
-              lcd.print(" TIME SCHEDULE");
+              lcd.print(F(" TIME SCHEDULE"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_SETTING;
@@ -1082,11 +1089,11 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET :
               lcd.clear();
-              lcd.print("BREAKFAST TIME");
+              lcd.print(F("BREAKFAST TIME"));
               lcd.setCursor(0, 1);
               if(!breakfastHour / 10) {lcd.print('0');}
               lcd.print(breakfastHour);
-              lcd.print(":");
+              lcd.print(F(":"));
               if(!breakfastMinute / 10) {lcd.print('0');}
               lcd.print(breakfastMinute);
               nowPage = Page_ScheduleBreakfast_TIME;
@@ -1096,9 +1103,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               //buttonBlinkFlag = NO_BLINK;
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1120,7 +1127,7 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : //
               lcd.clear();
-              lcd.print("BREAKFAST AMOUNT");
+              lcd.print(F("BREAKFAST AMOUNT"));
               lcd.setCursor(0, 1);
               if(!breakfastAmount / 100) {lcd.print('0');}
               if(!breakfastAmount / 10) {lcd.print('0');}
@@ -1133,9 +1140,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               //buttonBlinkFlag = NO_BLINK;
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1160,9 +1167,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case SET : // done!
               EEPROM.write(BREAKFAST_AMOUNT_IDX, breakfastAmount);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1172,9 +1179,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               breakfastAmount = EEPROM.read(BREAKFAST_AMOUNT_IDX);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1208,9 +1215,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               breakfastHour = EEPROM.read(BREAKFAST_HOUR_IDX);
               breakfastMinute = EEPROM.read(BREAKFAST_MINUTE_IDX);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1233,9 +1240,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               EEPROM.write(BREAKFAST_HOUR_IDX, breakfastHour);
               EEPROM.write(BREAKFAST_MINUTE_IDX, breakfastMinute);
               lcd.clear();
-              lcd.print("SET > ENTER");
+              lcd.print(F("SET > ENTER"));
               lcd.setCursor(0, 1);
-              lcd.print(" CONFIG FEED LOG");
+              lcd.print(F(" CONFIG FEED LOG"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_MAIN;
@@ -1267,11 +1274,11 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("LUNCH TIME");
+              lcd.print(F("LUNCH TIME"));
               lcd.setCursor(0, 1);
               if(!lunchHour / 10) {lcd.print('0');}
               lcd.print(lunchHour);
-              lcd.print(":");
+              lcd.print(F(":"));
               if(!lunchMinute / 10) {lcd.print('0');}
               lcd.print(lunchMinute);
               nowPage = Page_ScheduleLunch_TIME;
@@ -1281,9 +1288,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               //buttonBlinkFlag = NO_BLINK;
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1305,12 +1312,12 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done
               lcd.clear();
-              lcd.print("LUNCH AMOUNT");
+              lcd.print(F("LUNCH AMOUNT"));
               lcd.setCursor(0, 1);
               if(!lunchAmount / 100) {lcd.print('0');}
               if(!lunchAmount / 10) {lcd.print('0');}
               lcd.print(lunchAmount);
-              lcd.print(" G");
+              lcd.print(F(" G"));
               nowPage = Page_ScheduleLunch_Amount;
               nowButton = SCHEDULE_AMOUNTPAGE_BTN_AMOUNT;
               buttonBlinkFlag = SETTING_WEIGHT_LUNCH;
@@ -1318,9 +1325,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               //buttonBlinkFlag = NO_BLINK;
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1345,9 +1352,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case SET : // done!
               EEPROM.write(LUNCH_AMOUNT_IDX, lunchAmount);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1357,9 +1364,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               lunchAmount = EEPROM.read(LUNCH_AMOUNT_IDX);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1392,9 +1399,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               lunchHour = EEPROM.read(LUNCH_HOUR_IDX);
               lunchMinute = EEPROM.read(LUNCH_MINUTE_IDX);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1417,9 +1424,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               EEPROM.write(LUNCH_HOUR_IDX, lunchHour);
               EEPROM.write(LUNCH_MINUTE_IDX, lunchMinute);
               lcd.clear();
-              lcd.print("SET > ENTER");
+              lcd.print(F("SET > ENTER"));
               lcd.setCursor(0, 1);
-              lcd.print(" CONFIG FEED LOG");
+              lcd.print(F(" CONFIG FEED LOG"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_MAIN;
@@ -1451,11 +1458,11 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("DINNER TIME");
+              lcd.print(F("DINNER TIME"));
               lcd.setCursor(0, 1);
               if(!dinnerHour / 10) {lcd.print('0');}
               lcd.print(dinnerHour);
-              lcd.print(":");
+              lcd.print(F(":"));
               if(!dinnerMinute / 10) {lcd.print('0');}
               lcd.print(dinnerMinute);
               nowPage = Page_ScheduleDinner_TIME;
@@ -1465,9 +1472,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               //buttonBlinkFlag = NO_BLINK;
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1489,12 +1496,12 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               return;
             case SET : // done!
               lcd.clear();
-              lcd.print("DINNER AMOUNT");
+              lcd.print(F("DINNER AMOUNT"));
               lcd.setCursor(0, 1);
               if(!dinnerAmount / 100) {lcd.print('0');}
               if(!dinnerAmount / 10) {lcd.print('0');}
               lcd.print(dinnerAmount);
-              lcd.print(" G");
+              lcd.print(F(" G"));
               nowPage = Page_ScheduleDinner_Amount;
               nowButton = SCHEDULE_AMOUNTPAGE_BTN_AMOUNT;
               buttonBlinkFlag = SETTING_WEIGHT_DINNER;
@@ -1502,9 +1509,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK : // done!
               //buttonBlinkFlag = NO_BLINK;
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1529,9 +1536,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case SET :
               EEPROM.write(DINNER_AMOUNT_IDX, dinnerAmount);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1541,9 +1548,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
             case BACK :
               dinnerAmount = EEPROM.read(DINNER_AMOUNT_IDX);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1576,9 +1583,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               dinnerHour = EEPROM.read(DINNER_HOUR_IDX);
               dinnerMinute = EEPROM.read(DINNER_MINUTE_IDX);
               lcd.clear();
-              lcd.print("SCHEDULE");
+              lcd.print(F("SCHEDULE"));
               lcd.setCursor(0, 1);
-              lcd.print(" BF LUNCH DINNER");
+              lcd.print(F(" BF LUNCH DINNER"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_ScheduleMain;
@@ -1601,9 +1608,9 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               EEPROM.write(DINNER_HOUR_IDX, dinnerHour);
               EEPROM.write(DINNER_MINUTE_IDX, dinnerMinute);
               lcd.clear();
-              lcd.print("SET > ENTER");
+              lcd.print(F("SET > ENTER"));
               lcd.setCursor(0, 1);
-              lcd.print(" CONFIG FEED LOG");
+              lcd.print(F(" CONFIG FEED LOG"));
               lcd.setCursor(0, 1);
               lcd.blink();
               nowPage = Page_MAIN;
@@ -1653,77 +1660,56 @@ void fillFood(int targetWeight)
 
   while (attempts < FillMaxAttempt) 
   {
-    float weight = weightSensor.get_units(5); 
-    Serial.print("Current weight: ");
+    float weight = weightSensor.get_units(3); 
+    Serial.print(F("Current weight: "));
     Serial.println(weight);
 
-    if (weight >= targetWeight - FillTolerance) 
+    if(weight >= targetWeight - FillTolerance) 
+      {break;}
+    if(ultraSensorCheck() < UltrasonicNoFoodDistance)
       {break;}
 
-    rotateOneRevolution(true);
+    rotateStep(20, true);
     attempts++;
   }
 
   setMotorOff();
 
-  playCompleteSound();
+  if(ultraSensorCheck() < UltrasonicWarningDistance)
+    {dfPlayer.playMp3Folder(SOUND_WARNING);}
+  else
+    {dfPlayer.playMp3Folder(SOUND_FEED_COMPLETE);}
+  
   interrupts();
 }
 
 //motor control codes below here
-void rotateOneRevolution(bool isAnticlockwise)
+void rotateOneRevolution(bool isClockwise = true)
 {
-  if(!isAnticlockwise)
-  {
-    while(motorCount < countsPerRevolution)
-    {
-      clockwise();
-      motorCount++;
-    }
-    motorCount = 0;
-  }
-  else
-  {
-    while(motorCount < countsPerRevolution)
-    {
-      anticlockwise();
-      motorCount++;
-    }
-    motorCount = 0;
-  }
+  rotateStep(motorCount, isClockwise);
 }
 
-void anticlockwise()
+void rotateStep(int steps, bool isClockWise = true)
 {
-  for (int i = 0; i < 8; i++)
+  digitalWrite(DirPin, isClockWise ? HIGH : LOW);
+  digitalWrite(EnPin, LOW);
+  for(int i = 0 ; i < steps ; i++)
   {
-    setOutput(i);
-    delayMicroseconds(motorDelay);
+    digitalWrite(StepPin, HIGH);
+    delayMicroseconds(MotorDelay);
+    digitalWrite(StepPin, LOW);
+    delayMicroseconds(MotorDelay);
   }
-}
-void clockwise()
-{
-  for (int i = 7; i >= 0; i--)
-  {
-    setOutput(i);
-    delayMicroseconds(motorDelay);
-  }
-}
-void setOutput(int out)
-{
-  digitalWrite(MotorInAPin, bitRead(MotorOutput[out], 0));
-  digitalWrite(MotorInBPin, bitRead(MotorOutput[out], 1));
-  digitalWrite(MotorInCPin, bitRead(MotorOutput[out], 2));
-  digitalWrite(MotorInDPin, bitRead(MotorOutput[out], 3));
+  setMotorOff();
 }
 
 void setMotorOff()
 {
-  digitalWrite(MotorInAPin, 0);
-  digitalWrite(MotorInBPin, 0);
-  digitalWrite(MotorInCPin, 0);
-  digitalWrite(MotorInDPin, 0);
+  digitalWrite(DirPin, LOW);
+  digitalWrite(StepPin, LOW);
+  digitalWrite(EnPin, LOW);
 }
+
 
 int getWeight()
 {
@@ -1756,15 +1742,9 @@ unsigned long ultraSensorCheck()
 
   //debug code
   #ifdef _DEBUG_
-  Serial.print("Distance : ");
+  Serial.print(F("Distance : "));
   Serial.println(distance);
   #endif
 
   return distance;
-}
-
-
-void playCompleteSound()
-{
-  dfPlayer.playMp3Folder(SOuND_FEED_COMPLETE);
 }
