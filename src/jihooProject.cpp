@@ -6,7 +6,7 @@
 /*
 pinMaps
 
-A0 ButtonPin
+A0 ButtonPin O
 A1 SoftwareSerial RX (DF Player)
 A2 SoftwareSerial TX (DF Player)
 A3
@@ -87,8 +87,8 @@ static int motorCount = 0;
 const uint8_t UltraSonicTrigPin = 4;
 const uint8_t UltraSonicEchoPin = 5;
 
-const long UltrasonicNoFoodDistance = 170;
-const long UltrasonicWarningDistance = 100;
+const long UltrasonicNoFoodDistance = 150;
+const long UltrasonicWarningDistance = 70;
 
 // weight sensor constants and variables below here
 #include "HX711.h"
@@ -222,7 +222,7 @@ SoftwareSerial dfPlayerSerial(A1, A2);
 DFRobotDFPlayerMini dfPlayer;
 
 const uint8_t DFPlayerConnectMaxAttempts = 10;
-const uint16_t DFPlayerSerialTimeout = 500;
+const unsigned long DFPlayerSerialTimeout = 500U;
 const uint8_t DFPlayerVolume = 15; // 0~30 sound volume
 
 // Function Declarations
