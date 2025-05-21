@@ -62,10 +62,17 @@ static bool dinnerFeedFlag = false;
 #define BUTTON_PIN A0
 #define BUTTON_INTERRUPT_PIN 2
 
+/*
 #define BUTTON_SET 938
 #define BUTTON_BACK 826
 #define BUTTON_PREV 704
 #define BUTTON_NEXT 615
+*/
+
+#define BUTTON_SET 980
+#define BUTTON_BACK 921
+#define BUTTON_PREV 846
+#define BUTTON_NEXT 715
 
 #define BUTTON_MARGIN 50
 
@@ -74,27 +81,27 @@ volatile unsigned long lastButtonClickedTime = 0;
 const unsigned long DebouncingPeriod = 200;
 
 // motor constants and variables below here
-const uint8_t StepPin = 10;
-const uint8_t DirPin = 11;
-const uint8_t EnPin = 12;
+const uint8_t MotorDirPin = 10;
+const uint8_t MotorStepPin = 11;
+const uint8_t MotorEnPin = 12;
 
 const int CountsPerRevolution = 200; // TODO : modify this with motor spec
-const int MotorDelay = 1200; // TODO : same
+const int MotorDelay = 800; // TODO : same
 static int motorCount = 0;
 
 // ultrasonic sensor constants and variables below here
 #define ULTRASONIC_PERIOD 30000
-const uint8_t UltraSonicTrigPin = 4;
-const uint8_t UltraSonicEchoPin = 5;
+const uint8_t UltraSonicTrigPin = 3;
+const uint8_t UltraSonicEchoPin = 4;
 
-const long UltrasonicNoFoodDistance = 150;
-const long UltrasonicWarningDistance = 70;
+const long UltrasonicNoFoodDistance = 300;
+const long UltrasonicWarningDistance = 100;
 
 // weight sensor constants and variables below here
 #include "HX711.h"
-const uint8_t WeightDataPin = 8;
-const uint8_t WeightClockPin = 7;
-const float WeightSensorCalibrationData = 2336.76f; // TODO : calibrate sensor
+const uint8_t WeightDataPin = 9;
+const uint8_t WeightClockPin = 8;
+const float WeightSensorCalibrationData = 2336.76f;
 
 HX711 weightSensor;
 
@@ -218,12 +225,12 @@ const unsigned int DispenseWeightStep = 10; // grams per one action (+/-)
 const uint8_t SoftwareSerialRX = A1;
 const uint8_t SoftwareSerialTX = A2;
 
-SoftwareSerial dfPlayerSerial(A1, A2);
+SoftwareSerial dfPlayerSerial(SoftwareSerialRX, SoftwareSerialTX);
 DFRobotDFPlayerMini dfPlayer;
 
 const uint8_t DFPlayerConnectMaxAttempts = 10;
 const unsigned long DFPlayerSerialTimeout = 500U;
-const uint8_t DFPlayerVolume = 15; // 0~30 sound volume
+const uint8_t DFPlayerVolume = 30; // 0~30 sound volume
 
 // Function Declarations
 void rotateOneRevolution(bool isClockWise);
@@ -237,6 +244,14 @@ void rotateStep(int steps, bool isClockWise);
 
 void setup() 
 {  
+  // Initialize Stepping Motor
+  pinMode(MotorStepPin, OUTPUT);
+  pinMode(MotorDirPin, OUTPUT);
+  pinMode(MotorEnPin, OUTPUT);
+  
+  digitalWrite(MotorEnPin, HIGH);
+  digitalWrite(MotorDirPin, LOW);
+
   // LCD Initialize and Loading Screen
   lcd.init();
   lcd.backlight();
@@ -247,11 +262,7 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(BUTTON_INTERRUPT_PIN), ISR_ButtonClicked, RISING); // Attach Inturrupt for buttons
   pinMode(BUTTON_PIN, INPUT); // set button pin as input pin (not needed)
   
-  // Initialize Stepping Motor
-  pinMode(StepPin, OUTPUT);
-  pinMode(DirPin, OUTPUT);
-  pinMode(EnPin, OUTPUT);
-  
+
   // Initialize weight sensor
   weightSensor.begin(WeightDataPin, WeightClockPin); 
   weightSensor.set_scale(WeightSensorCalibrationData);
@@ -304,7 +315,6 @@ void setup()
   nowPage = Page_MAIN;
   nowButton = MainPage_BTN_Setting;
   
-  Serial.begin(9600);
 }
 
 void loop() 
@@ -387,7 +397,7 @@ enum ButtonBlinkFlags
           if(blinkButtonState)
           {
             blinkButtonState = LOW;
-            lcd.print("  ");
+            lcd.print("   ");
           }
           else
           {
@@ -599,6 +609,7 @@ enum ButtonBlinkFlags
   if(nowPage != Page_NOUSE && nowTime > lastUsedTime + NoUseScreenChangePeriod)
   {
     nowPage = Page_NOUSE;
+    buttonBlinkFlag=NO_BLINK;
     lcd.clear();
     lcd.noBlink();
     lcd.print("HAVE A NICE DAY!");
@@ -619,6 +630,7 @@ enum ButtonBlinkFlags
       case FRIDAY : lcd.print("FRI"); break;
       case SATURDAY : lcd.print("SAT"); break;
       case SUNDAY : lcd.print("SUN"); break;
+      default : lcd.print(F("   ")); break;
     }
     lcd.print(' ');
     if(!(currentTime.hour / 10)) {lcd.print('0');}
@@ -650,6 +662,7 @@ enum ButtonBlinkFlags
       case FRIDAY : lcd.print("FRI"); break;
       case SATURDAY : lcd.print("SAT"); break;
       case SUNDAY : lcd.print("SUN"); break;
+      default : lcd.print(F("   ")); break;
     }
     lcd.print(' ');
     if(!(currentTime.hour / 10)) {lcd.print('0');}
@@ -666,12 +679,10 @@ enum ButtonBlinkFlags
 
 void ISR_ButtonClicked()
 {
-  noInterrupts();
   volatile unsigned long nowTime = millis();
   if(lastButtonClickedTime + DebouncingPeriod > nowTime) return; // debounce
   buttonCheckFlag = true;
   lastButtonClickedTime = nowTime;
-  interrupts(); // is it work?
 }
 
 /*
@@ -744,7 +755,7 @@ void onButtonAction(int page, int button, int action) // nowPage, nowButton(Curs
               if(!(manualDispenseWeight/100)){lcd.print('0');}
               if(!(manualDispenseWeight/10)){lcd.print('0');}
               lcd.print(manualDispenseWeight);
-              lcd.print(" G");
+              //lcd.print(" G");
               nowPage = Page_DISPENSE;
               nowButton = PAGE2_BTN_AMOUNT;
               buttonBlinkFlag = DISPENSE_WEIGHT;
@@ -1647,12 +1658,11 @@ void fillFood(int weight, int dishes)
 
 //TODO : adjust parameter below here
 //TODO : seperate measuring weight code as getWeight
-const float FillTolerance = 0.0;
-const int FillMaxAttempt = 500;
+const float FillTolerance = 5.0;
+const int FillMaxAttempt = 10;
 
 void fillFood(int targetWeight) 
 {
-  noInterrupts();
   int attempts = 0;
 
   weightSensor.tare(); 
@@ -1660,16 +1670,31 @@ void fillFood(int targetWeight)
 
   while (attempts < FillMaxAttempt) 
   {
-    float weight = weightSensor.get_units(3); 
-    Serial.print(F("Current weight: "));
-    Serial.println(weight);
+    float weight = getWeight(); 
+    lcd.clear();
+    lcd.print(F("Current weight: "));
+    lcd.setCursor(0, 1);
+    lcd.print(weight);
 
     if(weight >= targetWeight - FillTolerance) 
-      {break;}
+    {
+      lcd.clear();
+      lcd.print("DONE!");
+      delay(2000);
+      break;
+    }
+    /*
     if(ultraSensorCheck() < UltrasonicNoFoodDistance)
-      {break;}
-
-    rotateStep(20, true);
+    {
+      lcd.clear();
+      lcd.print("NOT ENOUGH FOOD!");
+      lcd.setCursor(0, 1);
+      lcd.print(ultraSensorCheck());
+      delay(2000);
+      break;
+    }
+    */
+    rotateStep(50, true);
     attempts++;
   }
 
@@ -1680,7 +1705,6 @@ void fillFood(int targetWeight)
   else
     {dfPlayer.playMp3Folder(SOUND_FEED_COMPLETE);}
   
-  interrupts();
 }
 
 //motor control codes below here
@@ -1691,29 +1715,27 @@ void rotateOneRevolution(bool isClockwise = true)
 
 void rotateStep(int steps, bool isClockWise = true)
 {
-  digitalWrite(DirPin, isClockWise ? HIGH : LOW);
-  digitalWrite(EnPin, LOW);
+  digitalWrite(MotorDirPin, isClockWise ? HIGH : LOW);
+  digitalWrite(MotorEnPin, LOW);
   for(int i = 0 ; i < steps ; i++)
   {
-    digitalWrite(StepPin, HIGH);
+    digitalWrite(MotorStepPin, HIGH);
     delayMicroseconds(MotorDelay);
-    digitalWrite(StepPin, LOW);
+    digitalWrite(MotorStepPin, LOW);
     delayMicroseconds(MotorDelay);
   }
-  setMotorOff();
 }
 
 void setMotorOff()
 {
-  digitalWrite(DirPin, LOW);
-  digitalWrite(StepPin, LOW);
-  digitalWrite(EnPin, LOW);
+  digitalWrite(MotorDirPin, LOW);
+  digitalWrite(MotorStepPin, LOW);
+  digitalWrite(MotorEnPin, HIGH);
 }
 
 
 int getWeight()
 {
-  noInterrupts();
   float w1, w2;
   w1 = weightSensor.get_units(10);
   delay(100);
@@ -1724,7 +1746,6 @@ int getWeight()
     w2 = weightSensor.get_units();
     delay(100);
   }
-  interrupts();
 
   return round(w1);
 }
